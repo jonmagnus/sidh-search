@@ -1,0 +1,11 @@
+.DS_Store
+
+CMakeCache.txt
+CMakeFiles
+Makefile
+cmake_install.cmake
+compile_commands.json
+find_basis_p33
+find_order
+lib
+.cache
