@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <mont_utils.h>
+#include <printing.h>
 
 #define NUM_NODES 0xfffff
 #define H_KEY_SIZE 30
@@ -21,79 +23,6 @@ void fp2_get_key(const fp2 *raw_key, char *hkey) {
     //mpz_get_str(hkey + H_KEY_OFFSET, 16, raw_key->x1);
 }
 
-void fp2_printf(const fp2 *a) {
-    gmp_printf("%Zu + i*%Zu\n",
-               a->x0,
-               a->x1);
-}
-
-void mont_pt_printf(const mont_pt_t *P) {
-    gmp_printf("(%Zu + i*%Zu, %Zu + i*%Zu)\n",
-               P->x.x0,
-               P->x.x1,
-               P->y.x0,
-               P->y.x1);
-}
-
-void mont_curve_printf(const mont_curve_int_t *curve) {
-    gmp_printf("a: %Zu + i*%Zu\n",
-               curve->a.x0,
-               curve->a.x1);
-    gmp_printf("b: %Zu + i*%Zu\n",
-               curve->b.x0,
-               curve->b.x1);
-}
-
-int mont_is_inf(const ff_Params *p, const mont_pt_t *P) {
-    return fp2_IsConst(p, &P->x, 0, 0) && fp2_IsConst(p, &P->y, 0, 0);
-}
-
-int mont_is_principal_2_torsion(const mont_curve_int_t *curve, const mont_pt_t *P) {
-    const ff_Params *p = curve->ffData;
-    mont_pt_t T = { 0 };
-    mont_pt_init(p, &T);
-    mont_pt_copy(p, P, &T);
-    int ans = mont_is_inf(p, &T);
-    xDBL(curve, &T, &T);
-    ans = !ans && mont_is_inf(p, &T);
-    mont_pt_clear(p, &T);
-    return ans;
-}
-
-int reduce_to_2_torsion(const mont_curve_int_t *curve, const mont_pt_t *P, mont_pt_t *V) {
-    const ff_Params *p = curve->ffData;
-    mont_pt_t *T, *U;
-    T = malloc(sizeof(mont_pt_t));
-    U = malloc(sizeof(mont_pt_t));
-    mont_pt_init(p, T);
-    mont_pt_init(p, U);
-    
-    mont_pt_copy(p, P, T);
-    xDBL(curve, T, U);
-    int ord = 0;
-    while (!mont_is_inf(p, U)) {
-        mont_pt_copy(p, U, T);
-        xDBL(curve, U, U);
-        ord++;
-        if (ord > 20) {
-            fprintf(stderr, "Point is not pure 2-torsion\n");
-            mont_pt_printf(P);
-            mont_pt_printf(T);
-            mont_pt_printf(U);
-            exit(1);
-        }
-    }
-
-    mont_pt_copy(p, T, V);
-
-    mont_pt_clear(p, T);
-    mont_pt_clear(p, U);
-
-    return ord;
-}
-
-// TODO: Just write a function `reduce_to_2_torsion` that finds
-// the order and multiplies at the same time by keeping track of one step back.
 int isogeny_bfs(ff_Params *p,
                 mont_curve_int_t **q,
                 int end,
@@ -114,15 +43,15 @@ int isogeny_bfs(ff_Params *p,
     mont_pt_t* iso2_points[3] = { &P_, &Q_, &PQ_ };
     for (int i = 0; i < 3; i++) mont_pt_init(p, iso2_points[i]);
 
-    // Change to order of base point after corresponding map.
-    const int ediff[3] = { 1, 1, 0 };
-    const int fdiff[3] = { 1, 1, 0 };
-
     while (front < end && end < 10) {
         fprintf(stderr, "front=%5d, end=%5d\n", front, end);
         curve = q[front];
-        printf("\nFront curve\n");
+        printf("\n################\nFront curve\n################\n");
         mont_curve_printf(curve);
+        printf("P: ");
+        mont_pt_printf(&curve->P);
+        printf("Q: ");
+        mont_pt_printf(&curve->Q);
         j_inv(p, curve, &raw_key);
         fp2_get_key(&raw_key, item.key);
         fprintf(stderr, "key: %s\n", item.key);
@@ -132,7 +61,7 @@ int isogeny_bfs(ff_Params *p,
         if (found_item == NULL) {
             fprintf(stderr, "Couldn't find item corresponding to front of queue\n");
             rc = 1;
-            goto cleanup;
+            goto end;
         }
         int ordP, ordQ;
         ordP = reduce_to_2_torsion(curve, &curve->P, &P_);
@@ -141,12 +70,15 @@ int isogeny_bfs(ff_Params *p,
         xADD(curve, &P_, &Q_, &PQ_);
 
         for (int i = 0; i < 3; i++) {
-            printf("is2_points %d\n", i);
+            printf("\nis2_points %d: ", i);
             mont_pt_printf(iso2_points[i]);
             if (!mont_is_principal_2_torsion(curve, iso2_points[i])){
                 fprintf(stderr, "Point is not principal 2-torsion\n");
                 rc = 1;
-                goto cleanup;
+                goto end;
+            }
+            if (!mont_is_on_curve(curve, iso2_points[i])) {
+                printf("iso2 point not on curve\n");
             }
             // Check the three possible 2-torsion elements.
             const mont_pt_t *T = iso2_points[i];
@@ -155,8 +87,29 @@ int isogeny_bfs(ff_Params *p,
             curve_2_iso(p, T, curve, target_curve);
             eval_2_iso(p, T, &curve->P, &target_curve->P);
             eval_2_iso(p, T, &curve->Q, &target_curve->Q);
+            if (!mont_is_on_curve(target_curve, &target_curve->P)) {
+                printf("Target P not on target curve: ");
+                mont_pt_printf(&target_curve->P);
+            }
+            if (!mont_is_on_curve(target_curve, &target_curve->Q)) {
+                printf("Target Q not on target curve: ");
+                mont_pt_printf(&target_curve->Q);
+            }
 
+            int t_ordP, t_ordQ;
+            t_ordP = reduce_to_2_torsion(target_curve, &target_curve->P, NULL);
+            t_ordQ = reduce_to_2_torsion(target_curve, &target_curve->Q, NULL);
+            printf("t_ordP=%d, t_ordQ=%d\n", t_ordP, t_ordQ);
             mont_curve_printf(target_curve);
+            printf("target P: ");
+            mont_pt_printf(&target_curve->P);
+            printf("target Q: ");
+            mont_pt_printf(&target_curve->Q);
+            if (t_ordP < 0 || t_ordQ < 0) {
+                rc = 1;
+                goto end;
+            }
+
             j_inv(p, target_curve, &raw_key);
             fp2_get_key(&raw_key, item.key);
             fprintf(stderr, "Target key: %s\n", item.key);
@@ -167,7 +120,7 @@ int isogeny_bfs(ff_Params *p,
                 if(hsearch(item, ENTER) == NULL) {
                     fprintf(stderr, "Failed to set table value");
                     rc = 1;
-                    goto cleanup;
+                    goto end;
                 }
                 q[end++] = target_curve;
             } else {
@@ -179,7 +132,7 @@ int isogeny_bfs(ff_Params *p,
         mont_curve_clear(p, q[front++]);
     }
     
-cleanup:
+end:
     for (int i = front; i < end; i++) free(q[i]);
     for (int i = 0; i < 3; i++) mont_pt_clear(p, iso2_points[i]);
     fp2_Clear(p, &raw_key);
@@ -207,8 +160,6 @@ int main() {
     mont_curve_int_t *initial_curve = &params.EA;
     ff_Params *p = initial_curve->ffData;
     q[0] = initial_curve;
-    printf("Inital curve\n");
-    mont_curve_printf(initial_curve);
 
     fp2 raw_key = { 0 };
     fp2_Init(p, &raw_key);
