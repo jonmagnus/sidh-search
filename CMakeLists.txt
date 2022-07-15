@@ -15,7 +15,9 @@ find_library(SIKE_REF sike_ref lib)
 
 add_executable(find_basis_p33 src/find_basis_p33.c ${HEADER_FILES})
 add_executable(find_order src/find_order.c ${HEADER_FILES})
+add_executable(explore_graph src/explore_graph.c ${HEADER_FILES})
 
 target_link_libraries(find_order "${GMP}" "${SIKE_REF}")
 target_link_libraries(find_basis_p33 "${GMP}" "${SIKE_REF}")
+target_link_libraries(explore_graph "${GMP}" "${SIKE_REF}")
 
