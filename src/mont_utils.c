@@ -109,6 +109,7 @@ void mont_rand_pt(const mont_curve_int_t* curve, mont_pt_t* P) {
     fp2_Clear(p, &u);
 }
 
+// Might be confused with the point (0:0:1) which is a 2-torsion point.
 int mont_is_inf(const ff_Params *p, const mont_pt_t *P) {
     return fp2_IsConst(p, &P->x, 0, 0) && fp2_IsConst(p, &P->y, 0, 0);
 }
@@ -121,15 +122,14 @@ int mont_is_principal_2_torsion(const mont_curve_int_t *curve,
     mont_pt_copy(p, P, &T);
     int ans = mont_is_inf(p, &T);
     xDBL(curve, &T, &T);
-    printf("dblT: ");
-    mont_pt_printf(&T);
     ans = !ans && mont_is_inf(p, &T);
     mont_pt_clear(p, &T);
     return ans;
 }
 
-int reduce_to_2_torsion(const mont_curve_int_t *curve,
-                        const mont_pt_t *P, mont_pt_t *V) {
+int reduce_to_2_torsion_(const mont_curve_int_t *curve,
+                        const mont_pt_t *P,
+                        mont_pt_t *V) {
     const ff_Params *p = curve->ffData;
     mont_pt_t *T, *U;
     T = malloc(sizeof(mont_pt_t));
@@ -140,8 +140,10 @@ int reduce_to_2_torsion(const mont_curve_int_t *curve,
     mont_pt_copy(p, P, U);
     int ord = 0;
     while (!mont_is_inf(p, U)) {
+    //while (!fp2_IsConst(p, &T->y, 0, 0)) {
         mont_pt_copy(p, U, T);
         xDBL(curve, U, U);
+        //xDBL(curve, T, T);
         ord++;
         if (ord > 20) {
             fprintf(stderr, "Point is not pure 2-torsion\n");
@@ -156,7 +158,37 @@ int reduce_to_2_torsion(const mont_curve_int_t *curve,
 
 end:
     mont_pt_clear(p, T);
-    mont_pt_clear(p, U);
+    //mont_pt_clear(p, U);
+
+    return ord;
+}
+
+int reduce_to_2_torsion(const mont_curve_int_t *curve,
+                        const mont_pt_t *P,
+                        mont_pt_t *V) {
+    const ff_Params *p = curve->ffData;
+    mont_pt_t *T;
+    T = malloc(sizeof(mont_pt_t));
+    mont_pt_init(p, T);
+    mont_pt_copy(p, P, T);
+    
+    int ord = 1;
+    while (!fp2_IsConst(p, &T->y, 0, 0)) {
+        xDBL(curve, T, T);
+        ord++;
+        if (ord > 20) {
+            fprintf(stderr, "Point is not pure 2-torsion\n");
+            ord=-1;
+            goto end;
+        }
+    }
+
+    if (V != NULL) {
+        mont_pt_copy(p, T, V);
+    }
+
+end:
+    mont_pt_clear(p, T);
 
     return ord;
 }
