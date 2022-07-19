@@ -9,6 +9,7 @@
 #include <string.h>
 #include <mont_utils.h>
 #include <printing.h>
+#include <get_initial_curve.h>
 
 #define NUM_NODES 0xffffffllu
 #define H_KEY_SIZE 40
@@ -16,20 +17,21 @@
 #define EDGE_LABEL_SIZE 40
 #define EDGE_STR_SIZE (2*H_KEY_SIZE + EDGE_LABEL_SIZE + 10)
 
+#define VERBOSE 0
+
 void fp2_get_key(const fp2 *raw_key, char *hkey) {
     sprintf(hkey,
             "%13s + i*%13s",
             mpz_get_str(NULL, 0, raw_key->x0),
             mpz_get_str(NULL, 0, raw_key->x1));
-    //mpz_get_str(hkey, 16, raw_key->x0);
-    //mpz_get_str(hkey + H_KEY_OFFSET, 16, raw_key->x1);
 }
 
-int isogeny_bfs(ff_Params *p,
+int isogeny_bfs(const sike_params_t *params,
                 mont_curve_int_t **q,
                 int end,
                 char **edges,
                 unsigned long long *num_edges) {
+    ff_Params *p = params->EA.ffData;
     int rc = 0, front = 0;
     fp2 raw_key = { 0 };
     fp2_Init(p, &raw_key);
@@ -43,27 +45,33 @@ int isogeny_bfs(ff_Params *p,
     for (int i = 0; i < 3; i++) mont_pt_init(p, iso2_points[i]);
     mont_pt_init(p, &T);
 
-    //while (front < end && end < 1000) {
     while(front < end) {
-        fprintf(stderr, "front=%5d, end=%5d\n", front, end);
-        fflush(stderr);
+        if (front % 10000 == 0) {
+            fprintf(stderr, "%08d/%08d wavefront %08d\r", front, end, end - front);
+            fflush(stderr);
+        }
         curve = q[front];
+#if (VERBOSE)
         printf("\n################\nFront curve\n################\n");
         mont_curve_printf(curve);
         printf("P: ");
         mont_pt_printf(&curve->P);
         if (!mont_is_on_curve(curve, &curve->P)) {
             printf("Source P not on source curve\n");
+            rc = 1;
+            goto end;
         }
         printf("Q: ");
         mont_pt_printf(&curve->Q);
         if (!mont_is_on_curve(curve, &curve->Q)) {
             printf("Source Q not on source curve\n");
+            rc = 1;
+            goto end;
         }
+#endif
         j_inv(p, curve, &raw_key);
         item.key = malloc(H_KEY_SIZE);
         fp2_get_key(&raw_key, item.key);
-        fprintf(stderr, "key: %s\n", item.key);
         
         // Populate iso2_points with 2-torsion elements.
         ENTRY *found_item = hsearch(item , FIND);
@@ -73,17 +81,18 @@ int isogeny_bfs(ff_Params *p,
             goto end;
         }
         free(item.key);
-        printf("found_item=%p, item=%p\n", found_item->key, item.key);
         int ordP, ordQ;
         ordP = reduce_to_2_torsion(curve, &curve->P, &P_);
         ordQ = reduce_to_2_torsion(curve, &curve->Q, &Q_);
-        //printf("ordP=%d, ordQ=%d\n", ordP, ordQ);
-        // TODO: Avoid having both 2-torsion elements being (0,0).
-        // NOTE: Addition doesn't work properly if one of the points is (0,0).
-        char labels[3][EDGE_LABEL_SIZE];
-        sprintf(labels[0], "[label=\"[2^%d]P\"]", ordP - 1);
-        sprintf(labels[1], "[label=\"[2^%d]Q\"]", ordQ - 1);
-        sprintf(labels[2], "[label=\"[2^%d]P + [2^%d]Q\"]", ordP - 1, ordQ - 1);
+
+        if (ordP < 2) {
+            find_basis(curve, params->eA, params->eB, 1, &curve->P);
+            ordP = reduce_to_2_torsion(curve, &curve->P, &P_);
+        }
+        if (ordQ < 2) {
+            find_basis(curve, params->eA, params->eB, 1, &curve->Q);
+            ordQ = reduce_to_2_torsion(curve, &curve->Q, &Q_);
+        }
         
         if (ordP > ordQ) {
             xDBLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
@@ -102,28 +111,7 @@ int isogeny_bfs(ff_Params *p,
         } else {
             fp2_Set(p, &PQ_.x, 0, 0);
         }
-        //xADD(curve, &P_, &Q_, &PQ_);
-        /*
-        printf("P_: ");
-        mont_pt_printf(&P_);
-        printf("Q_: ");
-        mont_pt_printf(&Q_);
-        printf("PQ_: ");
-        mont_pt_printf(&PQ_);
-        */
         for (int i = 0; i < 3; i++) {
-            printf("\nis2_points %d: ", i);
-            mont_pt_printf(iso2_points[i]);
-            /*
-            if (!mont_is_principal_2_torsion(curve, iso2_points[i])){
-                fprintf(stderr, "Point is not principal 2-torsion\n");
-                rc = 1;
-                goto end;
-            }
-            */
-            if (!mont_is_on_curve(curve, iso2_points[i])) {
-                printf("iso2 point not on curve\n");
-            }
             // Check the three possible 2-torsion elements.
             const mont_pt_t *T = iso2_points[i];
             if (fp2_IsConst(p, &T->x, 0, 0)) {
@@ -144,15 +132,21 @@ int isogeny_bfs(ff_Params *p,
                 mont_pt_printf(&target_curve->Q);
             }
 
+#if (VERBOSE)
             mont_curve_printf(target_curve);
             printf("target P: ");
             mont_pt_printf(&target_curve->P);
             printf("target Q: ");
             mont_pt_printf(&target_curve->Q);
+#endif
             j_inv(p, target_curve, &raw_key);
             item.key = malloc(H_KEY_SIZE);
             fp2_get_key(&raw_key, item.key);
-            fprintf(stderr, "Target key: %s\n", item.key);
+            sprintf(edges[*num_edges],
+                    "\"%s\"--\"%s\"",
+                    found_item->key,
+                    item.key);
+            (*num_edges)++;
             if (hsearch(item, FIND) == NULL) {
                 // Add curve to table and queue.
                 item.data = malloc(2*sizeof(int));
@@ -163,13 +157,6 @@ int isogeny_bfs(ff_Params *p,
                     goto end;
                 }
                 q[end++] = target_curve;
-                fprintf(stderr, "num_edges=%llu\n", *num_edges);
-                sprintf(edges[*num_edges],
-                        "\"%s\"--\"%s\" %s",
-                        found_item->key,
-                        item.key,
-                        labels[i]);
-                (*num_edges)++;
             } else {
                 free(item.key);
                 mont_curve_clear(p, target_curve);
@@ -194,7 +181,6 @@ int main(int argc, char **argv) {
     int rc = 0;
     unsigned long long num_edges = 0;
     char hkey[H_KEY_SIZE];
-    //char edges[NUM_NODES][EDGE_STR_SIZE];
     char *edges_ = malloc(NUM_NODES*EDGE_STR_SIZE);
     if (edges_ == NULL) {
         fprintf(stderr, "Failed to allocate edges_\n");
@@ -208,8 +194,12 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "Finished allocating edges");
     mont_curve_int_t **q = NULL;
+    sike_params_raw_t raw_params = { 0 };
     sike_params_t params = { 0 };
-    sike_setup_params(&SIKEp33, &params);
+    get_initial_curve(6, 5, &raw_params);
+    mount_generic_bases(&raw_params);
+    //sike_setup_params(&SIKEp33, &params);
+    sike_setup_params(&raw_params, &params);
 
     rc = !hcreate(NUM_NODES);
     if (rc) {
@@ -236,7 +226,7 @@ int main(int argc, char **argv) {
 
     fprintf(stderr, "Search initialized\n");
 
-    isogeny_bfs(p, q, 1, (char**)edges, &num_edges);
+    isogeny_bfs(&params, q, 1, (char**)edges, &num_edges);
 
     FILE *logstream = stdout;
     if (argc >= 2) {

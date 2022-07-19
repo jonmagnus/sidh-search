@@ -39,57 +39,6 @@ char* mont_pt_get_str(char* str, int base, const mont_pt_t* P) {
     return str;
 }
 
-/* returns 1 for True, 0 for False */
-static int mont_is_inf_affine(const mont_curve_int_t* curve, const mont_pt_t *P) {
-  return (fp2_IsConst( curve->ffData, &P->x, 0, 0)
-          && fp2_IsConst( curve->ffData, &P->y, 0, 0 ));
-}
-
-
-
-void find_basis(const mont_curve_int_t* curve,
-                int eA,
-                int eB,
-                int is_alice,
-                mont_pt_t *P) {
-    const ff_Params *p = curve->ffData;
-    fp2 xP = { 0 };
-    fp2_Init(p, &xP);
-
-    mont_pt_t T = { 0 };
-    mont_pt_init(p, &T);
-
-    int order = 0, runs = 0;
-    do { 
-        mont_rand_pt(curve, P);
-
-        if (!mont_is_on_curve(curve, P)) {
-            fprintf(stderr, "P is not on curve\n");
-            continue;
-        }
-
-        order = 0;
-        if (is_alice) {
-            xTPLe(curve, P, eB, P);
-            mont_pt_copy(p, P, &T);
-            while (!mont_is_inf_affine(curve, &T)) {
-                xDBL(curve, &T, &T);
-                order++;
-            }
-        } else {
-            xDBLe(curve, P, eA, P);
-            mont_pt_copy(p, P, &T);
-            while (!mont_is_inf_affine(curve, &T)) {
-                xTPL(curve, &T, &T);
-                order++;
-            }
-        }
-        ++runs;
-    } while (order < (is_alice ? eA : eB) && runs < 10);
-
-    mont_pt_clear(p, &T);
-}
-
 int main() {
 
     ff_Params* p = malloc(sizeof(ff_Params));

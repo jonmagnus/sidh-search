@@ -24,4 +24,11 @@ int reduce_to_2_torsion(const mont_curve_int_t *curve,
                         const mont_pt_t *P,
                         mont_pt_t *V);
 
+void find_basis(const mont_curve_int_t *curve,
+                int eA,
+                int eB,
+                int is_alice,
+                mont_pt_t *P);
+
+
 #endif // MONT_UTILS_H

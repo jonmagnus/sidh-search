@@ -9,7 +9,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 include_directories(include)
 
 file(GLOB HEADER_FILES CONFIGURE_DEPENDS "include/*.h")
-set(SOURCE_FILES src/sike_params_small.c src/mont_utils.c src/printing.c)
+set(SOURCE_FILES
+    src/sike_params_small.c
+    src/mont_utils.c
+    src/printing.c
+    src/get_initial_curve.c)
 
 find_library(GMP gmp)
 find_library(SIKE_REF sike_ref lib)

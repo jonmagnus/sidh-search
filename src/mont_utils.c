@@ -58,16 +58,23 @@ void mont_get_yP(const mont_curve_int_t* curve,
             mont_pt_t* P) {
     const ff_Params *p = curve->ffData;
 
-    fp2 *t1 = malloc(sizeof(fp2));
+    fp2 *t1, *invb;
+    t1 = malloc(sizeof(fp2));
     fp2_Init(p, t1);
+    invb = malloc(sizeof(fp2));
+    fp2_Init(p, invb);
 
-    mont_eval_f(curve, xP, t1);   // t1 = xP^3+a*xP^2+xP
-    fp2_Sqrt(p, t1, t1, 0);       // t1 = sqrt(xP^3+a*xP^2+xP)
+    fp2_Invert(p, &curve->b, invb);
+
+    mont_eval_f(curve, xP, t1);     // t1 = xP^3+a*xP^2+xP
+    fp2_Multiply(p, t1, invb, t1);  // t1 = (xP^3+a*xP^2+xP) / b
+    fp2_Sqrt(p, t1, t1, 0);         // t1 = sqrt((xP^3+a*xP^2+xP) / b)
 
     fp2_Copy(p, t1, &P->y);
     fp2_Copy(p, xP, &P->x);
 
     fp2_Clear(p, t1);
+    fp2_Clear(p, invb);
 }
 
 void mont_rand_pt(const mont_curve_int_t* curve, mont_pt_t* P) {
@@ -127,42 +134,6 @@ int mont_is_principal_2_torsion(const mont_curve_int_t *curve,
     return ans;
 }
 
-int reduce_to_2_torsion_(const mont_curve_int_t *curve,
-                        const mont_pt_t *P,
-                        mont_pt_t *V) {
-    const ff_Params *p = curve->ffData;
-    mont_pt_t *T, *U;
-    T = malloc(sizeof(mont_pt_t));
-    U = malloc(sizeof(mont_pt_t));
-    mont_pt_init(p, T);
-    mont_pt_init(p, U);
-    
-    mont_pt_copy(p, P, U);
-    int ord = 0;
-    while (!mont_is_inf(p, U)) {
-    //while (!fp2_IsConst(p, &T->y, 0, 0)) {
-        mont_pt_copy(p, U, T);
-        xDBL(curve, U, U);
-        //xDBL(curve, T, T);
-        ord++;
-        if (ord > 20) {
-            fprintf(stderr, "Point is not pure 2-torsion\n");
-            ord=-1;
-            goto end;
-        }
-    }
-
-    if (V != NULL) {
-        mont_pt_copy(p, T, V);
-    }
-
-end:
-    mont_pt_clear(p, T);
-    //mont_pt_clear(p, U);
-
-    return ord;
-}
-
 int reduce_to_2_torsion(const mont_curve_int_t *curve,
                         const mont_pt_t *P,
                         mont_pt_t *V) {
@@ -171,24 +142,59 @@ int reduce_to_2_torsion(const mont_curve_int_t *curve,
     T = malloc(sizeof(mont_pt_t));
     mont_pt_init(p, T);
     mont_pt_copy(p, P, T);
-    
     int ord = 1;
     while (!fp2_IsConst(p, &T->y, 0, 0)) {
         xDBL(curve, T, T);
         ord++;
-        if (ord > 20) {
-            fprintf(stderr, "Point is not pure 2-torsion\n");
-            ord=-1;
-            goto end;
-        }
     }
 
     if (V != NULL) {
         mont_pt_copy(p, T, V);
     }
-
-end:
     mont_pt_clear(p, T);
 
     return ord;
 }
+
+void find_basis(const mont_curve_int_t* curve,
+                int eA,
+                int eB,
+                int is_alice,
+                mont_pt_t *P) {
+    const ff_Params *p = curve->ffData;
+
+    mont_pt_t T = { 0 };
+    mont_pt_init(p, &T);
+
+    int order = 0, runs = 0;
+    do { 
+        if (runs > 100) exit(1);
+        ++runs;
+        mont_rand_pt(curve, P);
+
+        if (!mont_is_on_curve(curve, P)) {
+            continue;
+        }
+
+        order = 0;
+        if (is_alice) {
+            xTPLe(curve, P, eB, P);
+            mont_pt_copy(p, P, &T);
+            while (!fp2_IsConst(p, &T.y, 0, 0)) {
+                xDBL(curve, &T, &T);
+                order++;
+            }
+            order++;
+        } else {
+            xDBLe(curve, P, eA, P);
+            mont_pt_copy(p, P, &T);
+            while (!fp2_IsConst(p, &T.x, 0, 0)) {
+                xTPL(curve, &T, &T);
+                order++;
+            }
+        }
+    } while (order < (is_alice ? eA : eB));
+
+    mont_pt_clear(p, &T);
+}
+
