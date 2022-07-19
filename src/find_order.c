@@ -1,5 +1,5 @@
 #include <montgomery.h>
-#include <sike_params.h>
+#include <sike_params_small.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <gmp.h>

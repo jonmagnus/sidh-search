@@ -1,6 +1,6 @@
 #include <gmp.h>
 #include <search.h>
-#include <sike_params.h>
+//#include <sike_params.h>
 #include <sike_params_small.h>
 #include <montgomery.h>
 #include <isogeny.h>

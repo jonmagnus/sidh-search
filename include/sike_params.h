@@ -122,8 +122,6 @@ sike_setup_params(const sike_params_raw_t *raw, sike_params_t *params);
 void
 sike_teardown_params(sike_params_t *params);
 
-extern const sike_params_raw_t SIKEp33;
-
 /**
  * SIKEp434 raw parameters
  */
