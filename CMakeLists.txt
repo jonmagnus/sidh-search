@@ -3,7 +3,7 @@ project(sidh_search)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_BUILD_TYPE Release)
-#set(CMAKE_C_FLAGS_RELEASE -O3)
+set(CMAKE_C_FLAGS_RELEASE -O3)
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
 include_directories(include)
