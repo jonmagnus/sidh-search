@@ -10,10 +10,11 @@
 #include <mont_utils.h>
 #include <printing.h>
 
-#define NUM_NODES 0xffff
+#define NUM_NODES 0xffffffllu
 #define H_KEY_SIZE 40
 #define H_KEY_OFFSET 15
-#define EDGE_STR_SIZE 2*H_KEY_SIZE + 10
+#define EDGE_LABEL_SIZE 40
+#define EDGE_STR_SIZE (2*H_KEY_SIZE + EDGE_LABEL_SIZE + 10)
 
 void fp2_get_key(const fp2 *raw_key, char *hkey) {
     sprintf(hkey,
@@ -37,12 +38,15 @@ int isogeny_bfs(ff_Params *p,
 
     mont_curve_int_t *curve = NULL, *target_curve;
 
-    mont_pt_t P_ = { 0 }, Q_ = { 0 }, PQ_ = { 0 };
+    mont_pt_t P_ = { 0 }, Q_ = { 0 }, PQ_ = { 0 }, T={ 0 };
     mont_pt_t* iso2_points[3] = { &P_, &Q_, &PQ_ };
     for (int i = 0; i < 3; i++) mont_pt_init(p, iso2_points[i]);
+    mont_pt_init(p, &T);
 
-    while (front < end && end < 100) {
-        //fprintf(stderr, "front=%5d, end=%5d\n", front, end);
+    //while (front < end && end < 1000) {
+    while(front < end) {
+        fprintf(stderr, "front=%5d, end=%5d\n", front, end);
+        fflush(stderr);
         curve = q[front];
         printf("\n################\nFront curve\n################\n");
         mont_curve_printf(curve);
@@ -76,10 +80,25 @@ int isogeny_bfs(ff_Params *p,
         //printf("ordP=%d, ordQ=%d\n", ordP, ordQ);
         // TODO: Avoid having both 2-torsion elements being (0,0).
         // NOTE: Addition doesn't work properly if one of the points is (0,0).
+        char labels[3][EDGE_LABEL_SIZE];
+        sprintf(labels[0], "[label=\"[2^%d]P\"]", ordP - 1);
+        sprintf(labels[1], "[label=\"[2^%d]Q\"]", ordQ - 1);
+        sprintf(labels[2], "[label=\"[2^%d]P + [2^%d]Q\"]", ordP - 1, ordQ - 1);
+        
+        if (ordP > ordQ) {
+            xDBLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
+            xADD(curve, &T, &curve->Q, &T);
+        } else {
+            xDBLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
+            xADD(curve, &T, &curve->P, &T);
+        }
+
         if (fp2_IsConst(p, &P_.x, 0, 0)) {
             fp2_Invert(p, &Q_.x, &PQ_.x);
+            mont_pt_copy(p, &T, &curve->P);
         } else if (fp2_IsConst(p, &Q_.x, 0, 0)) {
             fp2_Invert(p, &P_.x, &PQ_.x);
+            mont_pt_copy(p, &T, &curve->Q);
         } else {
             fp2_Set(p, &PQ_.x, 0, 0);
         }
@@ -125,20 +144,11 @@ int isogeny_bfs(ff_Params *p,
                 mont_pt_printf(&target_curve->Q);
             }
 
-            int t_ordP, t_ordQ;
-            t_ordP = reduce_to_2_torsion(target_curve, &target_curve->P, NULL);
-            t_ordQ = reduce_to_2_torsion(target_curve, &target_curve->Q, NULL);
-            printf("t_ordP=%d, t_ordQ=%d\n", t_ordP, t_ordQ);
             mont_curve_printf(target_curve);
             printf("target P: ");
             mont_pt_printf(&target_curve->P);
             printf("target Q: ");
             mont_pt_printf(&target_curve->Q);
-            if (t_ordP < 0 || t_ordQ < 0) {
-                rc = 1;
-                goto end;
-            }
-
             j_inv(p, target_curve, &raw_key);
             item.key = malloc(H_KEY_SIZE);
             fp2_get_key(&raw_key, item.key);
@@ -155,9 +165,10 @@ int isogeny_bfs(ff_Params *p,
                 q[end++] = target_curve;
                 fprintf(stderr, "num_edges=%llu\n", *num_edges);
                 sprintf(edges[*num_edges],
-                        "\"%s\"--\"%s\"",
+                        "\"%s\"--\"%s\" %s",
                         found_item->key,
-                        item.key);
+                        item.key,
+                        labels[i]);
                 (*num_edges)++;
             } else {
                 free(item.key);
@@ -172,6 +183,7 @@ int isogeny_bfs(ff_Params *p,
 end:
     for (int i = front; i < end; i++) free(q[i]);
     for (int i = 0; i < 3; i++) mont_pt_clear(p, iso2_points[i]);
+    mont_pt_clear(p, &T);
     fp2_Clear(p, &raw_key);
     fprintf(stderr, "Finished bfs cleanup\n");
     
