@@ -19,6 +19,14 @@
 
 #define VERBOSE 0
 
+// TODO: Speed up by avoiding sprintf.
+// TODO: Implement heuristics for graph comparison.
+// TODO: Enumerate nodes in hash table to avoid double edges.
+// TODO: Store depth to limit depth of search.
+// TODO: Implement search in 3-graph.
+// TODO: Traverse graph by explicitly finding roots.
+// TODO: Read $IKEp182 for inspiration on fast graph exploration.
+
 void fp2_get_key(const fp2 *raw_key, char *hkey) {
     sprintf(hkey,
             "%13s + i*%13s",
