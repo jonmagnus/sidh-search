@@ -26,6 +26,8 @@
 // TODO: Implement search in 3-graph.
 // TODO: Traverse graph by explicitly finding roots.
 // TODO: Read $IKEp182 for inspiration on fast graph exploration.
+// TODO: Embed on a periodic space (e.g. torus or finite field euclidean grid)
+// in hope of graph folding/filtration properties.
 
 void fp2_get_key(const fp2 *raw_key, char *hkey) {
     sprintf(hkey,
