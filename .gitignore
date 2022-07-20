@@ -11,3 +11,4 @@ lib
 .cache
 explore_graph
 output
+env

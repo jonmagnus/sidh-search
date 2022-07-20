@@ -1,6 +1,5 @@
 #include <gmp.h>
 #include <search.h>
-//#include <sike_params.h>
 #include <sike_params_small.h>
 #include <montgomery.h>
 #include <isogeny.h>
@@ -17,12 +16,8 @@
 #define EDGE_LABEL_SIZE 40
 #define EDGE_STR_SIZE (2*H_KEY_SIZE + EDGE_LABEL_SIZE + 10)
 
-#define VERBOSE 0
-
 // TODO: Speed up by avoiding sprintf.
 // TODO: Implement heuristics for graph comparison.
-// TODO: Enumerate nodes in hash table to avoid double edges.
-// TODO: Store depth to limit depth of search.
 // TODO: Implement search in 3-graph.
 // TODO: Traverse graph by explicitly finding roots.
 // TODO: Read $IKEp182 for inspiration on fast graph exploration.
@@ -71,24 +66,6 @@ int isogeny_bfs(const sike_params_t *params,
             fflush(stderr);
         }
         curve = q[front];
-#if (VERBOSE)
-        printf("\n################\nFront curve\n################\n");
-        mont_curve_printf(curve);
-        printf("P: ");
-        mont_pt_printf(&curve->P);
-        if (!mont_is_on_curve(curve, &curve->P)) {
-            printf("Source P not on source curve\n");
-            rc = 1;
-            goto end;
-        }
-        printf("Q: ");
-        mont_pt_printf(&curve->Q);
-        if (!mont_is_on_curve(curve, &curve->Q)) {
-            printf("Source Q not on source curve\n");
-            rc = 1;
-            goto end;
-        }
-#endif
         j_inv(p, curve, &raw_key);
         item.key = malloc(H_KEY_SIZE);
         fp2_get_key(&raw_key, item.key);
@@ -153,13 +130,6 @@ int isogeny_bfs(const sike_params_t *params,
                 mont_pt_printf(&target_curve->Q);
             }
 
-#if (VERBOSE)
-            mont_curve_printf(target_curve);
-            printf("target P: ");
-            mont_pt_printf(&target_curve->P);
-            printf("target Q: ");
-            mont_pt_printf(&target_curve->Q);
-#endif
             j_inv(p, target_curve, &raw_key);
             item.key = malloc(H_KEY_SIZE);
             fp2_get_key(&raw_key, item.key);
@@ -230,8 +200,8 @@ int main(int argc, char **argv) {
     mont_curve_int_t **q = NULL;
     sike_params_raw_t raw_params = { 0 };
     sike_params_t params = { 0 };
-    //get_initial_curve(6, 5, &raw_params);
-    get_initial_curve(5, 4, &raw_params);
+    get_initial_curve(6, 5, &raw_params);
+    //get_initial_curve(5, 4, &raw_params);
     mount_generic_bases(&raw_params);
     //sike_setup_params(&SIKEp33, &params);
     sike_setup_params(&raw_params, &params);
