@@ -13,7 +13,7 @@
 
 #define NUM_NODES 0xffffffllu
 #define H_KEY_SIZE 40
-#define H_KEY_OFFSET 15
+#define H_KEY_OFFSET 20
 #define EDGE_LABEL_SIZE 40
 #define EDGE_STR_SIZE (2*H_KEY_SIZE + EDGE_LABEL_SIZE + 10)
 
@@ -28,12 +28,22 @@
 // TODO: Read $IKEp182 for inspiration on fast graph exploration.
 // TODO: Embed on a periodic space (e.g. torus or finite field euclidean grid)
 // in hope of graph folding/filtration properties.
+// TODO: Find what choices of origin on a genus 1 curve give supersingular curves
+// -- what is the supersingular locus of the moduli space of elliptic curves.
 
 void fp2_get_key(const fp2 *raw_key, char *hkey) {
+#if 1
     sprintf(hkey,
-            "%13s + i*%13s",
+            //"%13s + i*%13s",
+            "%s+i*%s",
             mpz_get_str(NULL, 0, raw_key->x0),
             mpz_get_str(NULL, 0, raw_key->x1));
+#else
+    mpz_get_str(hkey, 16, raw_key->x0);
+    int offset = mpz_sizeinbase(raw_key->x0, 16);
+    hkey[offset++] = 'i';
+    mpz_get_str(hkey + offset, 16, raw_key->x1);
+#endif
 }
 
 int isogeny_bfs(const sike_params_t *params,
@@ -90,6 +100,7 @@ int isogeny_bfs(const sike_params_t *params,
             rc = 1;
             goto end;
         }
+        unsigned long long *data = found_item->data;
         free(item.key);
         int ordP, ordQ;
         ordP = reduce_to_2_torsion(curve, &curve->P, &P_);
@@ -152,22 +163,35 @@ int isogeny_bfs(const sike_params_t *params,
             j_inv(p, target_curve, &raw_key);
             item.key = malloc(H_KEY_SIZE);
             fp2_get_key(&raw_key, item.key);
-            sprintf(edges[*num_edges],
-                    "\"%s\"--\"%s\"",
-                    found_item->key,
-                    item.key);
-            (*num_edges)++;
-            if (hsearch(item, FIND) == NULL) {
+            unsigned long long *target_data;
+            ENTRY *target_item = hsearch(item, FIND);
+            if (target_item == NULL) {
                 // Add curve to table and queue.
-                item.data = malloc(2*sizeof(int));
+                target_data = malloc(2*sizeof(unsigned long long));
+                target_data[0] = data[0] + 1;   // Search depth
+                target_data[1] = end;
+                item.data = target_data;
 
                 if(hsearch(item, ENTER) == NULL) {
                     fprintf(stderr, "Failed to set table value");
                     rc = 1;
                     goto end;
                 }
+                sprintf(edges[*num_edges],
+                        "\"%s\"--\"%s\"",
+                        found_item->key,
+                        item.key);
+                (*num_edges)++;
                 q[end++] = target_curve;
             } else {
+                target_data = target_item->data;
+                if (target_data[0] > data[0]) {
+                    sprintf(edges[*num_edges],
+                            "\"%s\"--\"%s\"",
+                            found_item->key,
+                            item.key);
+                    (*num_edges)++;
+                }
                 free(item.key);
                 mont_curve_clear(p, target_curve);
             }
@@ -178,7 +202,7 @@ int isogeny_bfs(const sike_params_t *params,
     }
     
 end:
-    for (int i = front; i < end; i++) free(q[i]);
+    for (int i = front; i < end; i++) mont_curve_clear(p, q[i]);
     for (int i = 0; i < 3; i++) mont_pt_clear(p, iso2_points[i]);
     mont_pt_clear(p, &T);
     fp2_Clear(p, &raw_key);
@@ -206,7 +230,8 @@ int main(int argc, char **argv) {
     mont_curve_int_t **q = NULL;
     sike_params_raw_t raw_params = { 0 };
     sike_params_t params = { 0 };
-    get_initial_curve(6, 5, &raw_params);
+    //get_initial_curve(6, 5, &raw_params);
+    get_initial_curve(5, 4, &raw_params);
     mount_generic_bases(&raw_params);
     //sike_setup_params(&SIKEp33, &params);
     sike_setup_params(&raw_params, &params);
@@ -227,10 +252,10 @@ int main(int argc, char **argv) {
     fp2_Init(p, &raw_key);
     j_inv(p, initial_curve, &raw_key);
     fp2_get_key(&raw_key, hkey);
-    int initial_orders[2] = { params.eA, params.eA - 1 };
+    unsigned long long initial_data[2] = { 0, 0 };
     ENTRY item = {
         .key = hkey,
-        .data = initial_orders,
+        .data = initial_data,
     };
     hsearch(item, ENTER);
 
