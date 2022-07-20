@@ -9,6 +9,7 @@ import sys
 adj_list = []
 node_map = {}
 labels = []
+is_rational = []
 num_nodes = 0
 with open(sys.argv[1], "r") as infile:
     infile.readline()
@@ -19,6 +20,7 @@ with open(sys.argv[1], "r") as infile:
         else:
             u = node_map[a] = num_nodes
             labels.append(a)
+            is_rational.append(b.split("i*")[1] == "0")
             num_nodes += 1
 
         if b in node_map:
@@ -26,6 +28,7 @@ with open(sys.argv[1], "r") as infile:
         else:
             v = node_map[b] = num_nodes
             labels.append(b)
+            is_rational.append(b.split("i*")[1] == '0"')
             num_nodes += 1
 
         if u != v:
@@ -35,7 +38,6 @@ with open(sys.argv[1], "r") as infile:
 adj_list = np.asarray(adj_list)
 adj_list = np.sort(adj_list, axis=1)
 adj_list = np.unique(adj_list, axis=0)
-print(adj_list.shape)
 
 adj_matrix = scipy.sparse.coo_matrix(
     (-np.ones_like(adj_list[:, 0]), (adj_list[:, 0], adj_list[:, 1])),
@@ -47,8 +49,10 @@ adj_matrix.setdiag(-np.squeeze(np.asarray(adj_matrix.sum(0))))
 
 dim = 3
 w, v = scipy.sparse.linalg.eigsh(adj_matrix, dim + 1, which="LM", sigma=0)
-print(w)
-line_segments = v[:, 1:][adj_list]
+is_rational = np.asarray(is_rational)
+filter_adj_list = adj_list[is_rational[adj_list].all(1)]
+# line_segments = v[:, 1:][adj_list]
+line_segments = v[:, 1:][filter_adj_list]
 fig = plt.figure()
 if dim == 2:
     lc = mc.LineCollection(line_segments)
@@ -59,6 +63,7 @@ elif dim == 3:
 else:
     raise f"Invalid dimension '{dim}'"
 
-ax.plot(*(v[:, i] for i in range(1, dim + 1)), ".")
+ax.scatter(*(v[is_rational, i] for i in range(1, dim + 1)), c="r")
+ax.scatter(*(v[np.logical_not(is_rational), i] for i in range(1, dim + 1)), c="b")
 ax.add_collection(lc)
 plt.show()
