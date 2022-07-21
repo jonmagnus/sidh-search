@@ -13,9 +13,11 @@ set(SOURCE_FILES
     src/sike_params_small.c
     src/mont_utils.c
     src/printing.c
+    src/write_graph.c
     src/get_initial_curve.c)
 
 find_library(GMP gmp)
+#find_library(CGRAPH cgraph)
 find_library(SIKE_REF sike_ref lib)
 
 add_executable(find_basis_p33 src/find_basis_p33.c ${SOURCE_FILES} ${HEADER_FILES})

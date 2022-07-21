@@ -5,6 +5,7 @@
 #include <mont_utils.h>
 
 //TODO: Write method for finding linear independant basis with 2^(eA - 1) Q_A = (0,0).
+//TODO: Write method to avoid P,Q lying over same 2-torison -- leads to missing edges.
 
 void mount_generic_bases(sike_params_raw_t *partial_raw_params) {
     ff_Params *p = malloc(sizeof(ff_Params));
