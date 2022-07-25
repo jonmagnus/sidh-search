@@ -97,24 +97,36 @@ int isogeny_bfs(const sike_params_t *params,
             ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
         }
 
-        // TODO: Make points purely linearly independant by
-        // replacing one by a linear combination.
-        
         if (is_alice) {
-            if (ordP > ordQ) {
-                xDBLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
-                xADD(curve, &T, &curve->Q, &T);
-            } else {
-                xDBLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
-                xADD(curve, &T, &curve->P, &T);
+            // TODO: This need not cover all isogenies if P, Q generate same isogeny.
+            while (fp2_IsEqual(p, &P_.x, &Q_.x)) {
+                if (ordP > ordQ) {
+                    xDBLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
+                    if (fp2_IsEqual(p, &curve->Q.x, &T.x)) {
+                        find_basis(curve, params->eA, params->eB, is_alice, &curve->Q);
+                        ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
+                    } else {
+                        xADD(curve, &T, &curve->Q, &curve->Q);
+                        ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
+                    }
+                } else {
+                    xDBLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
+                    if (fp2_IsEqual(p, &curve->P.x, &T.x)) {
+                        find_basis(curve, params->eA, params->eB, is_alice, &curve->P);
+                        ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+                    } else {
+                        xADD(curve, &T, &curve->P, &curve->P);
+                        ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+                    }
+                }
             }
 
             if (fp2_IsConst(p, &P_.x, 0, 0)) {
                 fp2_Invert(p, &Q_.x, &PQ_.x);
-                mont_pt_copy(p, &T, &curve->P);
+                //mont_pt_copy(p, &T, &curve->P);
             } else if (fp2_IsConst(p, &Q_.x, 0, 0)) {
                 fp2_Invert(p, &P_.x, &PQ_.x);
-                mont_pt_copy(p, &T, &curve->Q);
+                //mont_pt_copy(p, &T, &curve->Q);
             } else {
                 fp2_Set(p, &PQ_.x, 0, 0);
             }
@@ -126,12 +138,22 @@ int isogeny_bfs(const sike_params_t *params,
                 }
                 if (ordP > ordQ) {
                     xTPLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
-                    xADD(curve, &T, &curve->Q, &curve->Q);
-                    ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
+                    if (fp2_IsEqual(p, &curve->Q.x, &T.x)) {
+                        find_basis(curve, params->eA, params->eB, is_alice, &curve->Q);
+                        ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
+                    } else {
+                        xADD(curve, &T, &curve->Q, &curve->Q);
+                        ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
+                    }
                 } else {
                     xTPLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
-                    xADD(curve, &T, &curve->P, &curve->P);
-                    ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+                    if (fp2_IsEqual(p, &curve->P.x, &T.x)) {
+                        find_basis(curve, params->eA, params->eB, is_alice, &curve->P);
+                        ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+                    } else {
+                        xADD(curve, &T, &curve->P, &curve->P);
+                        ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+                    }
                 }
             }
             xADD(curve, &P_, &Q_, &PQ_);
@@ -173,12 +195,6 @@ int isogeny_bfs(const sike_params_t *params,
                     rc = 1;
                     goto cleanup;
                 }
-                /*
-                sprintf(edges[*num_edges],
-                        "\"%s\"--\"%s\"",
-                        found_item->key,
-                        item.key);
-                */
                 edges[*num_edges][0] = ((unsigned long long*)found_item->data)[1];
                 edges[*num_edges][1] = *end;
                 (*num_edges)++;
@@ -186,12 +202,6 @@ int isogeny_bfs(const sike_params_t *params,
             } else {
                 target_data = target_item->data;
                 if (target_data[0] > data[0]) {
-                    /*
-                    sprintf(edges[*num_edges],
-                            "\"%s\"--\"%s\"",
-                            found_item->key,
-                            item.key);
-                    */
                     edges[*num_edges][0] = ((unsigned long long*)found_item->data)[1];
                     edges[*num_edges][1] = target_data[1];
                     (*num_edges)++;
@@ -217,6 +227,10 @@ cleanup:
 
 int main(int argc, char **argv) {
     int rc = 0, is_alice = 0;
+    if (argc >= 3) {
+        // is_alice is passed.
+        is_alice = strtol(argv[2], NULL, 0);
+    }
     unsigned long long num_edges = 0;
     char hkey[H_KEY_SIZE];
     int *edges_ = malloc(2*NUM_NODES*sizeof(int));
@@ -361,7 +375,8 @@ int main(int argc, char **argv) {
     if (argc >= 2) {
         logstream = fopen(argv[1], "w");
         if (logstream == NULL) {
-            printf("Failed to open file '%s'\n", argv[1]); rc = 1;
+            fprintf(stderr, "Failed to open file '%s'\n", argv[1]);
+            rc = 1;
             goto cleanup;
         }
     }
@@ -388,7 +403,7 @@ int main(int argc, char **argv) {
     write_graph(logstream,
                 sub_depths,
                 sub_keys,
-                NULL,
+                colors,
                 num_sub_nodes,
                 sub_edges,
                 num_sub_edges);

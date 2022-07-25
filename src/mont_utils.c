@@ -83,32 +83,38 @@ void mont_rand_pt(const mont_curve_int_t* curve, mont_pt_t* P) {
     fp2 u = { 0 };
     fp2_Init(p, &u);
     fp2_Set(p, &u, 5134, 1);
-    //fp2_Set(p, &u, 4, 1);
 
     mont_pt_t T = { 0 };
     mont_pt_init(p, &T);
     fp2 *t1 = &T.x, *t2 = &T.y;
-    fp2 *t0 = malloc(sizeof(fp2));
-    fp2_Init(p, t0);
-    fp2_Rand(p, t0);                // t0 = r_ random value
+    fp2 t0 = { 0 };
+    fp2_Init(p, &t0);
 
-    do {
-        fp2_Add(p, t1, t0, t1);         // t1 = r = k*r_ random value
+    if (fp2_IsConst(p, &curve->a, 0, 0)) {
+        do {
+            fp2_Rand(p, t1);
+            mont_eval_f(curve, t1, t2);
+        } while (is_square(p, t2));
+    } else {
+        fp2_Rand(p, &t0);                // t0 = r_ random value
+        do {
+            fp2_Add(p, t1, &t0, t1);        // t1 = r = k*r_ random value
 
-        fp2_Square(p, t1, t1);          // t1 = r^2
-        fp2_Multiply(p, &u, t1, t1);    // t1 = u*r^2
-        fp2_Set(p, t2, 1, 0);           // t2 = 1
-        fp2_Add(p, t1, t2, t1);         // t1 = 1 + u*r^2
-        fp2_Invert(p, t1, t1);          // t1 = 1 / (1 + u*r^2)
-        fp2_Negative(p, t1, t1);        // t1 = - 1 / (1 + u*r^2)
-        fp2_Multiply(p, a, t1, t1);     // t1 = - a / (1 + u*r^2)
+            fp2_Square(p, t1, t1);          // t1 = r^2
+            fp2_Multiply(p, &u, t1, t1);    // t1 = u*r^2
+            fp2_Set(p, t2, 1, 0);           // t2 = 1
+            fp2_Add(p, t1, t2, t1);         // t1 = 1 + u*r^2
+            fp2_Invert(p, t1, t1);          // t1 = 1 / (1 + u*r^2)
+            fp2_Negative(p, t1, t1);        // t1 = - 1 / (1 + u*r^2)
+            fp2_Multiply(p, a, t1, t1);     // t1 = - a / (1 + u*r^2)
 
-        mont_eval_f(curve, t1, t2);
-        if (!is_square(p, t2)) {
-            fp2_Add(p, a, t1, t1);      // t1 = a - a/(1 + u*r^2)
-            fp2_Negative(p, t1, t1);    // t1 = a/(1 + u*r^2) - a
-        }
-    } while (is_square(p, t1));
+            mont_eval_f(curve, t1, t2);
+            if (!is_square(p, t2)) {
+                fp2_Add(p, a, t1, t1);      // t1 = a - a/(1 + u*r^2)
+                fp2_Negative(p, t1, t1);    // t1 = a/(1 + u*r^2) - a
+            }
+        } while (is_square(p, t1));
+    }
 
     mont_get_yP(curve, t1, P);
 
