@@ -156,6 +156,30 @@ int reduce_to_2_torsion(const mont_curve_int_t *curve,
     return ord;
 }
 
+int reduce_to_3_torsion(const mont_curve_int_t *curve,
+                        const mont_pt_t *P,
+                        mont_pt_t *V) {
+    const ff_Params *p = curve->ffData;
+    mont_pt_t T = { 0 }, U = { 0 };
+    mont_pt_init(p, &T);
+    mont_pt_init(p, &U);
+    mont_pt_copy(p, P, &T);
+    int ord = 0;
+    while (!fp2_IsConst(p, &T.y, 0, 0)) {
+        mont_pt_copy(p, &T, &U);
+        xTPL(curve, &T, &T);
+        ord++;
+    }
+
+    if (V != NULL) {
+        mont_pt_copy(p, &U, V);
+    }
+    mont_pt_clear(p, &T);
+    mont_pt_clear(p, &U);
+
+    return ord;
+}
+
 void find_basis(const mont_curve_int_t* curve,
                 int eA,
                 int eB,

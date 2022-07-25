@@ -111,12 +111,20 @@ void write_graph(FILE *stream,
     }
     fprintf(stream, "graph {\n");
     for (int i = 0; i < num_nodes; i++) {
-        fprintf(stream,
-                "n%d [label=\"%s\\n%d\", color=\"#%06x\", style=filled]\n",
-                i,
-                keys[i],
-                depths[i],
-                colors[i]);
+        if (colors == NULL) {
+            fprintf(stream,
+                    "n%d [label=\"%s\"]\n",
+                    i,
+                    keys[i]);
+                    
+        } else {
+            fprintf(stream,
+                    "n%d [label=\"%s\\n%d\", color=\"#%06x\", style=filled]\n",
+                    i,
+                    keys[i],
+                    depths[i],
+                    colors[i]);
+        }
     }
     for (int i = 0; i < num_edges; i++) {
         fprintf(stream, "n%d--n%d\n", edges[i][0], edges[i][1]);

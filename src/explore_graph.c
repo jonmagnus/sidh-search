@@ -34,11 +34,23 @@ void fp2_get_key(const fp2 *raw_key, char *hkey) {
             mpz_get_str(NULL, 0, raw_key->x1));
 }
 
+/**
+ * Perform a BF-search to map the whole isogeny graph.
+ * The isogeny graph over Fp2 should be connected,
+ * so it will uncover the whole graph.
+ */
 int isogeny_bfs(const sike_params_t *params,
                 mont_curve_int_t **q,
                 int *end,
                 int **edges,
-                unsigned long long *num_edges) {
+                unsigned long long *num_edges,
+                const int is_alice) {
+    int (*reduce_to_single_torsion)(const mont_curve_int_t*,
+                                    const mont_pt_t*,
+                                    mont_pt_t*) = (
+                                        is_alice
+                                        ? &reduce_to_2_torsion
+                                        : &reduce_to_3_torsion);
     ff_Params *p = params->EA.ffData;
     int rc = 0, front = 0;
     fp2 raw_key = { 0 };
@@ -48,13 +60,13 @@ int isogeny_bfs(const sike_params_t *params,
 
     mont_curve_int_t *curve = NULL, *target_curve;
 
-    mont_pt_t P_ = { 0 }, Q_ = { 0 }, PQ_ = { 0 }, T={ 0 };
-    mont_pt_t* iso2_points[3] = { &P_, &Q_, &PQ_ };
-    for (int i = 0; i < 3; i++) mont_pt_init(p, iso2_points[i]);
+    mont_pt_t P_ = { 0 }, Q_ = { 0 }, PQ_ = { 0 }, PPQ_ = { 0 }, T={ 0 };
+    mont_pt_t* iso_points[4] = { &P_, &Q_, &PQ_, &PPQ_ };
+    for (int i = 0; i < 4 - is_alice; i++) mont_pt_init(p, iso_points[i]);
     mont_pt_init(p, &T);
 
     while(front < *end) {
-        if (front % 10000 == 0) {
+        if (front % 100 == 0) {
             fprintf(stderr, "%08d/%08d wavefront %08d\r", front, *end, *end - front);
             fflush(stderr);
         }
@@ -63,7 +75,7 @@ int isogeny_bfs(const sike_params_t *params,
         item.key = malloc(H_KEY_SIZE);
         fp2_get_key(&raw_key, item.key);
         
-        // Populate iso2_points with 2-torsion elements.
+        // Populate iso_points with {2,3}-torsion elements.
         ENTRY *found_item = hsearch(item , FIND);
         if (found_item == NULL) {
             fprintf(stderr, "Couldn't find item corresponding to front of queue\n");
@@ -73,47 +85,76 @@ int isogeny_bfs(const sike_params_t *params,
         unsigned long long *data = found_item->data;
         free(item.key);
         int ordP, ordQ;
-        ordP = reduce_to_2_torsion(curve, &curve->P, &P_);
-        ordQ = reduce_to_2_torsion(curve, &curve->Q, &Q_);
+        ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+        ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
 
         if (ordP < 2) {
-            find_basis(curve, params->eA, params->eB, 1, &curve->P);
-            ordP = reduce_to_2_torsion(curve, &curve->P, &P_);
+            find_basis(curve, params->eA, params->eB, is_alice, &curve->P);
+            ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
         }
         if (ordQ < 2) {
-            find_basis(curve, params->eA, params->eB, 1, &curve->Q);
-            ordQ = reduce_to_2_torsion(curve, &curve->Q, &Q_);
-        }
-        
-        if (ordP > ordQ) {
-            xDBLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
-            xADD(curve, &T, &curve->Q, &T);
-        } else {
-            xDBLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
-            xADD(curve, &T, &curve->P, &T);
+            find_basis(curve, params->eA, params->eB, is_alice, &curve->Q);
+            ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
         }
 
-        if (fp2_IsConst(p, &P_.x, 0, 0)) {
-            fp2_Invert(p, &Q_.x, &PQ_.x);
-            mont_pt_copy(p, &T, &curve->P);
-        } else if (fp2_IsConst(p, &Q_.x, 0, 0)) {
-            fp2_Invert(p, &P_.x, &PQ_.x);
-            mont_pt_copy(p, &T, &curve->Q);
+        // TODO: Make points purely linearly independant by
+        // replacing one by a linear combination.
+        
+        if (is_alice) {
+            if (ordP > ordQ) {
+                xDBLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
+                xADD(curve, &T, &curve->Q, &T);
+            } else {
+                xDBLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
+                xADD(curve, &T, &curve->P, &T);
+            }
+
+            if (fp2_IsConst(p, &P_.x, 0, 0)) {
+                fp2_Invert(p, &Q_.x, &PQ_.x);
+                mont_pt_copy(p, &T, &curve->P);
+            } else if (fp2_IsConst(p, &Q_.x, 0, 0)) {
+                fp2_Invert(p, &P_.x, &PQ_.x);
+                mont_pt_copy(p, &T, &curve->Q);
+            } else {
+                fp2_Set(p, &PQ_.x, 0, 0);
+            }
         } else {
-            fp2_Set(p, &PQ_.x, 0, 0);
+            // Make sure P and Q do not give the same isogeny.
+            while (fp2_IsEqual(p, &P_.x, &Q_.x)) {
+                if (fp2_IsEqual(p, &P_.y, &Q_.y)) {
+                    fp2_Negative(p, &curve->P.y, &curve->P.y);
+                }
+                if (ordP > ordQ) {
+                    xTPLe(curve, &curve->P, ordP - ordQ, &T);   // T and Q have the same order.
+                    xADD(curve, &T, &curve->Q, &curve->Q);
+                    ordQ = (*reduce_to_single_torsion)(curve, &curve->Q, &Q_);
+                } else {
+                    xTPLe(curve, &curve->Q, ordQ - ordP, &T);   // T and P have the same order.
+                    xADD(curve, &T, &curve->P, &curve->P);
+                    ordP = (*reduce_to_single_torsion)(curve, &curve->P, &P_);
+                }
+            }
+            xADD(curve, &P_, &Q_, &PQ_);
+            xADD(curve, &P_, &PQ_, &PPQ_);
         }
-        for (int i = 0; i < 3; i++) {
-            // Check the three possible 2-torsion elements.
-            const mont_pt_t *T = iso2_points[i];
+        for (int i = 0; i < 4 - is_alice; i++) {
+            // Check isogeny for each principal torsion element.
+            const mont_pt_t *T = iso_points[i];
             if (fp2_IsConst(p, &T->x, 0, 0)) {
                 // Skip the case when evaluating 2-isogeny of (0,0).
                 continue;
             }
             target_curve = malloc(sizeof(mont_curve_int_t));
             mont_curve_init(p, target_curve);
-            curve_2_iso(p, T, curve, target_curve);
-            eval_2_iso(p, T, &curve->P, &target_curve->P);
-            eval_2_iso(p, T, &curve->Q, &target_curve->Q);
+            if (is_alice) {
+                curve_2_iso(p, T, curve, target_curve);
+                eval_2_iso(p, T, &curve->P, &target_curve->P);
+                eval_2_iso(p, T, &curve->Q, &target_curve->Q);
+            } else {
+                curve_3_iso(p, T, curve, target_curve);
+                eval_3_iso(p, T, &curve->P, &target_curve->P);
+                eval_3_iso(p, T, &curve->Q, &target_curve->Q);
+            }
 
             j_inv(p, target_curve, &raw_key);
             item.key = malloc(H_KEY_SIZE);
@@ -166,7 +207,7 @@ int isogeny_bfs(const sike_params_t *params,
     
 cleanup:
     //for (int i = front; i < *end; i++) mont_curve_clear(p, q[i]);
-    for (int i = 0; i < 3; i++) mont_pt_clear(p, iso2_points[i]);
+    for (int i = 0; i < 3; i++) mont_pt_clear(p, iso_points[i]);
     mont_pt_clear(p, &T);
     fp2_Clear(p, &raw_key);
     fprintf(stderr, "Finished bfs cleanup\n");
@@ -175,7 +216,7 @@ cleanup:
 }
 
 int main(int argc, char **argv) {
-    int rc = 0;
+    int rc = 0, is_alice = 0;
     unsigned long long num_edges = 0;
     char hkey[H_KEY_SIZE];
     int *edges_ = malloc(2*NUM_NODES*sizeof(int));
@@ -192,7 +233,7 @@ int main(int argc, char **argv) {
     mont_curve_int_t **q = NULL;
     sike_params_raw_t raw_params = { 0 };
     sike_params_t params = { 0 };
-    get_initial_curve(6, 5, &raw_params);
+    get_initial_curve(4, 3, &raw_params);
     //get_initial_curve(7, 9, &raw_params);
     mount_generic_bases(&raw_params);
     //sike_setup_params(&SIKEp33, &params);
@@ -207,7 +248,7 @@ int main(int argc, char **argv) {
     q = malloc(NUM_NODES*sizeof(mont_curve_int_t*));
     memset(q, 0, NUM_NODES*sizeof(mont_curve_int_t*));
     
-    mont_curve_int_t *initial_curve = &params.EA;
+    mont_curve_int_t *initial_curve = (is_alice ? &params.EA : &params.EB);
     ff_Params *p = initial_curve->ffData;
     q[0] = initial_curve;
 
@@ -223,7 +264,7 @@ int main(int argc, char **argv) {
     hsearch(item, ENTER);
 
     int end = 1;
-    isogeny_bfs(&params, q, &end, edges, &num_edges);
+    isogeny_bfs(&params, q, &end, edges, &num_edges, is_alice);
     
 
     /////////////////
@@ -253,11 +294,30 @@ int main(int argc, char **argv) {
     // Find subgraph
     ////////////////
 
+    // Find optimal slope by pop-count.
+
     fp2 slope = { 0 };
     fp2_Init_set(p, &slope, 1, 0);
     int *node_filter, *edge_filter;
     node_filter = malloc(end*sizeof(int));
     edge_filter = malloc(num_edges*sizeof(int));
+#if 0 // Turns out there are no other optimal linear embeddings.
+    int best_pop = 1, best_pop_idx = 0;
+    for (int i = 0; i < end; i++) {
+        j_inv(p, q[i], &slope);
+        if (fp_IsConstant(p, slope.x1, 0)) {
+            // Ignore rational slopes.
+            continue;
+        }
+        filter_slope(p, &slope, invariants, end, edges, num_edges, node_filter, edge_filter);
+        int pop = pop_count(node_filter, end);
+        if (pop > best_pop) {
+            best_pop = pop;
+            best_pop_idx = i;
+        }
+    }
+    j_inv(p, q[best_pop_idx], &slope);
+#endif
     filter_slope(p, &slope, invariants, end, edges, num_edges, node_filter, edge_filter);
     fp2_Clear(p, &slope);
     int num_sub_nodes, num_sub_edges;
@@ -316,7 +376,7 @@ int main(int argc, char **argv) {
         if (node_filter[i]) {
             colors[i] = 0x00ff00;
         } else {
-            colors[i] = hex_gradient(0xff0000, 0x0000ff, depths[i], max_depth);
+            colors[i] = hex_gradient(0xff0000, 0x0000ff, max_depth, depths[i]);
         }
     }
     write_graph(logstream, depths, keys, colors, end, edges, num_edges);
@@ -328,7 +388,7 @@ int main(int argc, char **argv) {
     write_graph(logstream,
                 sub_depths,
                 sub_keys,
-                colors,
+                NULL,
                 num_sub_nodes,
                 sub_edges,
                 num_sub_edges);
