@@ -226,11 +226,19 @@ cleanup:
 }
 
 int main(int argc, char **argv) {
-    int rc = 0, is_alice = 0;
-    if (argc >= 3) {
-        // is_alice is passed.
-        is_alice = strtol(argv[2], NULL, 0);
+    int rc = 0;
+    if (argc < 5) {
+        fprintf(stderr, "Too few arguments\n");
+        return 1;
     }
+    int eA, eB, is_alice;
+    eA = strtol(argv[2], NULL, 0);
+    eB = strtol(argv[3], NULL, 0);
+    if (eA == 0 || eB == 0) {
+        fprintf(stderr, "eA, eB must be nonzero\n");
+        return 1;
+    }
+    is_alice = strtol(argv[4], NULL, 0);
     unsigned long long num_edges = 0;
     char hkey[H_KEY_SIZE];
     int *edges_ = malloc(2*NUM_NODES*sizeof(int));
@@ -247,10 +255,8 @@ int main(int argc, char **argv) {
     mont_curve_int_t **q = NULL;
     sike_params_raw_t raw_params = { 0 };
     sike_params_t params = { 0 };
-    get_initial_curve(4, 3, &raw_params);
-    //get_initial_curve(7, 9, &raw_params);
+    get_initial_curve(eA, eB, &raw_params);
     mount_generic_bases(&raw_params);
-    //sike_setup_params(&SIKEp33, &params);
     sike_setup_params(&raw_params, &params);
 
     rc = !hcreate(NUM_NODES);
@@ -385,7 +391,7 @@ int main(int argc, char **argv) {
         max_depth = depths[i] > max_depth ? depths[i] : max_depth;
     }
     unsigned int *colors;
-#if 0
+#if 1
     colors = malloc(end*sizeof(unsigned int));
     for (int i = 0; i < end; i++) {
         if (node_filter[i]) {
