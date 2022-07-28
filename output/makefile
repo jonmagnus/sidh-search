@@ -1,9 +1,14 @@
 
 PDFS = $(foreach tuple,\
-       	4_3 5_4 6_5, \
+       	4_3 5_4 6_5\
+	12_5 9_10,\
 	$(foreach agent,alice bob,\
 	$(agent)_$(tuple).pdf \
 ))
+
+DOTS = $(patsubst %.pdf,%.dot,$(PDFS))
+
+dots : $(DOTS)
 
 all : $(PDFS)
 
