@@ -2,7 +2,6 @@
 library("sna")
 library("igraph")
 
-# TODO: Handle big grpahs
 args = commandArgs(trailingOnly=TRUE)
 for (filename in args) {
     g.dot <- read.dot(filename)

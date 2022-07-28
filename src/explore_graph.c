@@ -18,14 +18,6 @@
 #define EDGE_STR_SIZE (2*H_KEY_SIZE + EDGE_LABEL_SIZE + 10)
 
 // TODO: Speed up by avoiding sprintf.
-// TODO: Implement heuristics for graph comparison.
-// TODO: Implement search in 3-graph.
-// TODO: Traverse graph by explicitly finding roots.
-// TODO: Read $IKEp182 for inspiration on fast graph exploration.
-// TODO: Embed on a periodic space (e.g. torus or finite field euclidean grid)
-// in hope of graph folding/filtration properties.
-// TODO: Find what choices of origin on a genus 1 curve give supersingular curves
-// -- what is the supersingular locus of the moduli space of elliptic curves.
 
 void fp2_get_key(const fp2 *raw_key, char *hkey) {
     sprintf(hkey,
